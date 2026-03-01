@@ -43,26 +43,31 @@
     width: 100%;
     flex: 1 1 auto;
     min-height: 0;
-    overflow: hidden scroll;
+    overflow-x: hidden;
+    overflow-y: auto;
     scrollbar-color: var(--scrollbar-thin-thumb) var(--scrollbar-thin-track);
     scrollbar-width: thin;
 }
 
 .vc-fav-images-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-    padding: 12px 4px 12px 12px;
+    column-count: 2;
+    column-gap: 12px;
+    padding: 12px;
 }
 
 .vc-fav-images-grid-item {
+    display: block;
+    width: 100%;
+    margin-bottom: 12px;
+    break-inside: avoid;
     position: relative;
     border-radius: 4px;
     overflow: hidden;
     cursor: pointer;
-    aspect-ratio: 1;
     background-color: var(--background-secondary);
-    transition: transform 0.1s ease, box-shadow 0.15s ease;
+    transition:
+        transform 0.1s ease,
+        box-shadow 0.15s ease;
 }
 
 .vc-fav-images-grid-item:hover {
@@ -71,9 +76,9 @@
 }
 
 .vc-fav-images-grid-item img {
+    display: block;
     width: 100%;
-    height: 100%;
-    object-fit: cover;
+    height: auto;
     border-radius: 4px;
 }
 
@@ -132,7 +137,9 @@
     font-weight: 600;
     line-height: 14px;
     padding: 8px 12px;
-    transition: background-color .1s ease-in-out, color .1s ease-in-out;
+    transition:
+        background-color 0.1s ease-in-out,
+        color 0.1s ease-in-out;
     flex: 0 0 auto;
 }
 
@@ -145,7 +152,6 @@
     background-color: var(--background-mod-normal);
     color: var(--text-strong);
 }
-
 
 .vc-fav-images-nav-btn[aria-selected="true"]:hover {
     background-color: var(--background-mod-strong);
