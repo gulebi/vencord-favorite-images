@@ -8,11 +8,14 @@ import { NavContextMenuPatchCallback } from "@api/ContextMenu";
 import * as DataStore from "@api/DataStore";
 import { insertTextIntoChatInputBox } from "@utils/discord";
 import definePlugin from "@utils/types";
-import { ExpressionPickerStore, Menu, Toasts, useState, useEffect, useCallback } from "@webpack/common";
+import { createRoot, ExpressionPickerStore, Menu, Toasts, useCallback, useEffect, useState } from "@webpack/common";
 
 import managedStyle from "./styles.css?managed";
 
+// ─── Favorite Images Data Management ───
+
 const STORE_KEY = "FavoriteImages";
+let favoriteUrls = new Set<string>();
 
 interface FavoriteImage {
     url: string;
@@ -25,22 +28,24 @@ async function getFavorites(): Promise<FavoriteImage[]> {
 
 async function addFavorite(url: string): Promise<void> {
     const favs = await getFavorites();
-    if (favs.some((f) => f.url === url)) return;
-    favs.push({ url, addedAt: Date.now() });
+    if (favs.some(f => f.url === url)) return;
+    favs.unshift({ url, addedAt: Date.now() });
     await DataStore.set(STORE_KEY, favs);
+    favoriteUrls.add(url);
 }
 
 async function removeFavorite(url: string): Promise<void> {
     const favs = await getFavorites();
-    await DataStore.set(
-        STORE_KEY,
-        favs.filter((f) => f.url !== url),
-    );
+    await DataStore.set(STORE_KEY, favs.filter(f => f.url !== url));
+    favoriteUrls.delete(url);
 }
 
-async function isFavorite(url: string): Promise<boolean> {
-    const favs = await getFavorites();
-    return favs.some((f) => f.url === url);
+function isFavorite(url: string): boolean {
+    return favoriteUrls.has(url);
+}
+
+async function refreshFavoriteCache(): Promise<void> {
+    favoriteUrls = new Set((await getFavorites()).map(f => f.url));
 }
 
 // ─── Favorite Images Panel (rendered inside expression picker) ───
@@ -57,12 +62,12 @@ function FavoriteImagesPanel() {
 
     useEffect(() => {
         loadFavorites();
-    }, []);
+    }, [loadFavorites]);
 
     const handleRemove = useCallback(async (url: string, e: React.MouseEvent) => {
         e.stopPropagation();
         await removeFavorite(url);
-        setFavorites((prev) => prev.filter((f) => f.url !== url));
+        setFavorites(prev => prev.filter(f => f.url !== url));
         Toasts.show({
             message: "Removed from favorites",
             id: Toasts.genId(),
@@ -102,12 +107,20 @@ function FavoriteImagesPanel() {
             </div>
             <div className="vc-fav-images-content">
                 <div className="vc-fav-images-grid">
-                    {favorites.map((fav) => (
-                        <div key={fav.url} className="vc-fav-images-grid-item" onClick={() => handleSend(fav.url)}>
-                            <img src={fav.url} alt="Favorite image" loading="lazy" />
+                    {favorites.map(fav => (
+                        <div
+                            key={fav.url}
+                            className="vc-fav-images-grid-item"
+                            onClick={() => handleSend(fav.url)}
+                        >
+                            <img
+                                src={fav.url}
+                                alt="Favorite image"
+                                loading="lazy"
+                            />
                             <button
                                 className="vc-fav-images-remove-btn"
-                                onClick={(e) => handleRemove(fav.url, e)}
+                                onClick={e => handleRemove(fav.url, e)}
                                 aria-label="Remove from favorites"
                             >
                                 ✕
@@ -122,16 +135,9 @@ function FavoriteImagesPanel() {
 
 // ─── Heart Icon SVG ───
 
-function HeartIcon({ width = 24, height = 24, filled = false }: { width?: number; height?: number; filled?: boolean }) {
+function HeartIcon({ width = 24, height = 24, filled = false }: { width?: number; height?: number; filled?: boolean; }) {
     return (
-        <svg
-            viewBox="0 0 24 24"
-            width={width}
-            height={height}
-            fill={filled ? "#db61a2" : "none"}
-            stroke={filled ? "#db61a2" : "currentColor"}
-            strokeWidth="2"
-        >
+        <svg viewBox="0 0 24 24" width={width} height={height} fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
             <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
         </svg>
     );
@@ -139,27 +145,15 @@ function HeartIcon({ width = 24, height = 24, filled = false }: { width?: number
 
 // ─── Context Menu Patches ───
 
-const imageContextMenuPatch: NavContextMenuPatchCallback = (children, props) => {
-    if (!props?.src) return;
-
-    const src = props.src;
-
-    children.push(buildMenuItem(src));
-};
-
 function buildMenuItem(src: string) {
-    const [isFav, setIsFav] = useState(false);
-
-    useEffect(() => {
-        isFavorite(src).then(setIsFav);
-    }, [src]);
+    const isFav = isFavorite(src);
 
     return (
         <Menu.MenuGroup>
             <Menu.MenuItem
                 id="vc-fav-image-toggle"
                 label={isFav ? "Remove from Favorites" : "Add to Favorites"}
-                icon={() => <HeartIcon width={18} height={18} filled={isFav} />}
+                icon={() => <HeartIcon width={20} height={20} filled={isFav} />}
                 action={async () => {
                     if (isFav) {
                         await removeFavorite(src);
@@ -182,6 +176,16 @@ function buildMenuItem(src: string) {
     );
 }
 
+const imageContextMenuPatch: NavContextMenuPatchCallback = (children, props) => {
+    if (!props?.src) return;
+
+    const { src } = props;
+
+    children.push(
+        buildMenuItem(src)
+    );
+};
+
 const messageContextMenuPatch: NavContextMenuPatchCallback = (children, props) => {
     // For message context menus with image data
     if (!props?.itemSrc && !props?.itemHref) return;
@@ -189,18 +193,18 @@ const messageContextMenuPatch: NavContextMenuPatchCallback = (children, props) =
     const src = props.itemHref ?? props.itemSrc;
     if (!src || !isImageUrl(src)) return;
 
-    children.push(buildMenuItem(src));
+    children.push(
+        buildMenuItem(src)
+    );
 };
 
 function isImageUrl(url: string): boolean {
     try {
         const parsed = new URL(url);
         const path = parsed.pathname.toLowerCase();
-        return (
-            /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i.test(path) ||
+        return /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i.test(path) ||
             parsed.host.includes("media.discordapp") ||
-            parsed.host.includes("cdn.discordapp")
-        );
+            parsed.host.includes("cdn.discordapp");
     } catch {
         return false;
     }
@@ -209,7 +213,7 @@ function isImageUrl(url: string): boolean {
 // ─── Expression Picker Tab Injection ───
 
 let observer: MutationObserver | null = null;
-let panelRoot: any = null;
+let panelRoot: ReturnType<typeof createRoot> | null = null;
 
 function injectNavButton() {
     const nav = document.querySelector('[class*="navList_"]');
@@ -225,10 +229,10 @@ function injectNavButton() {
 
     btn.addEventListener("click", () => {
         // Deselect other tabs
-        nav.querySelectorAll("[role='tab']").forEach((tab) => {
+        nav.querySelectorAll("[role='tab']").forEach(tab => {
             tab.setAttribute("aria-selected", "false");
             // Remove Discord's selected styling
-            tab.classList.forEach((cls) => {
+            tab.classList.forEach(cls => {
                 if (cls.includes("navButtonActive_")) {
                     tab.classList.replace(cls, cls + "-inactive");
                 }
@@ -241,11 +245,11 @@ function injectNavButton() {
     });
 
     // When any other tab is clicked, restore state
-    nav.querySelectorAll("[role='tab']").forEach((tab) => {
+    nav.querySelectorAll("[role='tab']").forEach(tab => {
         if (tab === btn) return;
         tab.addEventListener("click", () => {
             btn.setAttribute("aria-selected", "false");
-            tab.classList.forEach((cls) => {
+            tab.classList.forEach(cls => {
                 if (cls.includes("-inactive")) {
                     tab.classList.replace(cls, cls.replace("-inactive", ""));
                 }
@@ -269,9 +273,7 @@ function showFavoritesPanel() {
     if (!panel) {
         // Previous root is stale if the DOM was destroyed (picker closed)
         if (panelRoot) {
-            try {
-                panelRoot.unmount();
-            } catch {}
+            try { panelRoot.unmount(); } catch { }
             panelRoot = null;
         }
 
@@ -291,7 +293,6 @@ function showFavoritesPanel() {
     (panel as HTMLElement).style.display = "flex";
 
     // Use React to render the panel
-    const { createRoot } = require("@webpack/common") as typeof import("@webpack/common");
     if (!panelRoot) {
         panelRoot = createRoot(panel as HTMLElement);
     }
@@ -310,10 +311,9 @@ function hideFavoritesPanel() {
     if (panel) {
         (panel as HTMLElement).style.display = "none";
     }
-
-    panelRoot?.unmount();
-    panelRoot = null;
 }
+
+// ─── Mutation Observer ───
 
 function startObserver() {
     observer = new MutationObserver(() => {
@@ -330,9 +330,14 @@ function stopObserver() {
     observer?.disconnect();
     observer = null;
 
+    const pickerContent = document.querySelector('[id*="-picker-tab-panel"]');
+    if (pickerContent) {
+        (pickerContent as HTMLElement).style.display = "";
+    }
+
     // Clean up DOM
     document.querySelector("#vc-fav-images-tab-panel")?.remove();
-    document.querySelectorAll(".vc-fav-images-nav-btn").forEach((el) => el.remove());
+    document.querySelectorAll(".vc-fav-images-nav-btn").forEach(el => el.remove());
 
     if (panelRoot) {
         panelRoot.unmount();
@@ -351,10 +356,11 @@ export default definePlugin({
 
     contextMenus: {
         "image-context": imageContextMenuPatch,
-        message: messageContextMenuPatch,
+        "message": messageContextMenuPatch,
     },
 
     start() {
+        void refreshFavoriteCache();
         startObserver();
     },
 
@@ -362,3 +368,4 @@ export default definePlugin({
         stopObserver();
     },
 });
+
